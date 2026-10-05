@@ -24,6 +24,8 @@ npm install @libai168/dsh-tool-airtable
 
 插件从 `tokenEnv` 指定的环境变量读取 Airtable 个人访问令牌（默认 `AIRTABLE_TOKEN`）。不要把可用令牌写入源码、示例、测试或提交的配置文件。在 Airtable 开发者中心创建令牌，只授予部署所需范围（读工具需 `data.records:read`，写工具需 `data.records:write`，列 base 需 `schema.bases:read`）。
 
+`baseUrl` 覆盖必须是绝对的 `http://` 或 `https://` 根地址。只允许公网可达主机：localhost、环回、私有、链路本地、CGNAT、组播、保留/文档/基准测试网段以及全部 IANA 特殊用途地址段都会被拒绝；DNS 结果包含任一此类地址时会在发出请求前 fail closed。不允许 credentials、query、fragment 或非根路径。
+
 ## 工具
 
 | 工具 | 说明 | 写操作 |

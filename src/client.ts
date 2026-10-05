@@ -1,6 +1,8 @@
 /** Airtable Web API client with injected fetch for testability. Contract verified
  * against the official developer docs (list/create records, whoami, meta bases). */
 
+import { assertSafeUrl, EndpointSecurityError, normalizeBaseUrl, type LookupImpl } from './url-security.js'
+
 export interface AirtableClientOptions {
   /** Airtable API root, for example https://api.airtable.com/v0. */
   baseUrl?: string
@@ -9,6 +11,8 @@ export interface AirtableClientOptions {
   /** HTTP request timeout in milliseconds. 0 disables the timeout. */
   timeoutMs?: number
   fetchImpl?: typeof fetch
+  /** Test-only DNS lookup override; production uses node:dns/promises. */
+  lookupImpl?: LookupImpl
 }
 
 export class AirtableError extends Error {
@@ -129,12 +133,19 @@ export class AirtableClient {
   private readonly token: string
   private readonly timeoutMs: number
   private readonly fetchImpl: typeof fetch
+  private readonly lookupImpl: LookupImpl | undefined
 
   constructor(options: AirtableClientOptions = {}) {
-    this.baseUrl = (options.baseUrl ?? 'https://api.airtable.com/v0').replace(/\/+$/, '')
+    try {
+      this.baseUrl = normalizeBaseUrl(options.baseUrl, 'https://api.airtable.com/v0')
+    } catch (error) {
+      if (error instanceof EndpointSecurityError) throw new AirtableError(error.message, 400)
+      throw error
+    }
     this.token = options.token ?? ''
     this.timeoutMs = options.timeoutMs ?? 15000
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch
+    this.lookupImpl = options.lookupImpl
   }
 
   hasToken(): boolean {
@@ -178,6 +189,12 @@ export class AirtableClient {
     const url = new URL(`${this.baseUrl}${path}`)
     for (const [key, value] of Object.entries(options.params ?? {})) {
       if (value !== undefined && value !== '') url.searchParams.set(key, String(value))
+    }
+    try {
+      await assertSafeUrl(url, this.lookupImpl)
+    } catch (error) {
+      if (error instanceof EndpointSecurityError) throw new AirtableError(error.message, 400)
+      throw error
     }
     const headers: Record<string, string> = { accept: 'application/json', authorization: `Bearer ${this.token}` }
     if (options.body !== undefined) headers['content-type'] = 'application/json'

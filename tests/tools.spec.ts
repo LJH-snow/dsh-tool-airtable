@@ -3,11 +3,15 @@ import { describe, expect, it, vi } from 'vitest'
 import { AirtableClient } from '../src/client.ts'
 import { createTools } from '../src/index.ts'
 
+/** Deterministic DNS so tests never depend on real resolution. */
+const publicLookup = async () => [{ address: '93.184.216.34', family: 4 as const }]
+
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 }
 
-const clientForTest = () => new AirtableClient({ token: process.env.AIRTABLE_TEST_TOKEN ?? `pat-test-${randomUUID()}` })
+const clientForTest = () => new AirtableClient({ lookupImpl: publicLookup, token: process.env.AIRTABLE_TEST_TOKEN ?? `pat-test-${randomUUID()}` })
 
 describe('dsh-tool-airtable tools', () => {
   it('registers the Airtable tool set', () => {
@@ -69,7 +73,7 @@ describe('dsh-tool-airtable tools', () => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ records: [{ id: 'recDemoRecord0001', createdTime: '2026-10-05T00:00:00.000Z', fields: { Name: 'alice' } }], offset: '' }))
       .mockResolvedValueOnce(jsonResponse({ records: [{ id: 'recDemoRecord0002', createdTime: '2026-10-05T01:00:00.000Z', fields: { Name: 'secret-create-value' } }] }))
-    const tools = createTools(new AirtableClient({ token: `pat-test-${randomUUID()}`, fetchImpl }))
+    const tools = createTools(new AirtableClient({ lookupImpl: publicLookup, token: `pat-test-${randomUUID()}`, fetchImpl }))
 
     const list = tools.find(item => item.name === 'airtable_list_records')!
     const listResult = await list.execute({ baseId: 'appDemoBase123456', table: 'Tasks' })

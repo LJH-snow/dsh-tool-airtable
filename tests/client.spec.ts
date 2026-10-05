@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { AirtableClient, AirtableError } from '../src/client.ts'
 
+/** Deterministic DNS so tests never depend on real resolution. */
+const publicLookup = async () => [{ address: '93.184.216.34', family: 4 as const }]
+
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 }
@@ -9,7 +13,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 const testToken = process.env.AIRTABLE_TEST_TOKEN ?? `pat-test-${randomUUID()}`
 
 function client(fetchImpl: ReturnType<typeof vi.fn>) {
-  return new AirtableClient({ baseUrl: 'https://airtable.test.invalid/v0', token: testToken, fetchImpl })
+  return new AirtableClient({ lookupImpl: publicLookup, baseUrl: 'https://airtable.test.invalid/v0', token: testToken, fetchImpl })
 }
 
 describe('AirtableClient', () => {
@@ -78,7 +82,7 @@ describe('AirtableClient', () => {
     await expect(fire.listRecords('bad-id', 'Tasks')).rejects.toThrow('baseId must look like app')
     await expect(fire.getRecord('appDemoBase123456', 'Tasks', 'wrong-record-id')).rejects.toThrow('recordId must look like rec')
     await expect(fire.listRecords('appDemoBase123456', `${'t'.repeat(300)}`)).rejects.toThrow('table must be a non-empty')
-    await expect(new AirtableClient({ fetchImpl }).verifyToken()).rejects.toThrow(AirtableError)
+    await expect(new AirtableClient({ lookupImpl: publicLookup, fetchImpl }).verifyToken()).rejects.toThrow(AirtableError)
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 
@@ -119,5 +123,79 @@ describe('AirtableClient', () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ error: { type: 'TABLE_NOT_FOUND', message: 'Could not find table Tasks' } }, 404))
     await expect(client(fetchImpl).getRecord('appDemoBase123456', 'Tasks', 'recDemoRecord0001')).rejects.toThrow('Could not find table Tasks')
     await expect(client(fetchImpl).getRecord('appDemoBase123456', 'Tasks', 'recDemoRecord0001')).rejects.toBeInstanceOf(AirtableError)
+  })
+})
+
+describe('Airtable endpoint security', () => {
+  const valid = { token: 'pat_test' }
+
+  it('rejects invalid base URLs without exposing their contents', () => {
+    for (const baseUrl of [
+      'api.airtable.com/v0',
+      'ftp://api.airtable.com/v0',
+      'https://user:secret@api.airtable.com/v0',
+      'https://api.airtable.com/v0?token=secret',
+      'https://api.airtable.com/v0#fragment',
+    ]) {
+      let error: unknown
+      try { new AirtableClient({ ...valid, baseUrl }) } catch (thrown) { error = thrown }
+      expect(error).toBeInstanceOf(AirtableError)
+      expect(String(error)).not.toContain('secret')
+    }
+  })
+
+  it('rejects literal local, private, and reserved addresses before fetch', async () => {
+    for (const baseUrl of [
+      'http://localhost',
+      'http://service.localhost',
+      'http://service.local',
+      'http://127.0.0.1',
+      'http://169.254.169.254',
+      'http://0.0.0.0',
+      'http://10.0.0.1',
+      'http://192.168.1.1',
+      'http://192.0.2.1',
+      'http://198.18.0.1',
+      'http://224.0.0.1',
+      'http://192.175.48.1',
+      'http://[::1]',
+      'http://[::]',
+      'http://[fc00::1]',
+      'http://[fe80::1]',
+      'http://[fec0::1]',
+      'http://[2001:db8::1]',
+      'http://[2001:3::1]',
+      'http://[2001:4:112::1]',
+      'http://[2001:30::1]',
+      'http://[5f00::1]',
+      'http://[100:0:0:1::1]',
+      'http://[2620:4f:8000::1]',
+      'http://[64:ff9b::7f00:1]',
+      'http://[ff02::1]',
+    ]) {
+      const fetchImpl = vi.fn()
+      await expect(new AirtableClient({ ...valid, baseUrl, fetchImpl }).verifyToken()).rejects.toBeInstanceOf(AirtableError)
+      expect(fetchImpl).not.toHaveBeenCalled()
+    }
+  })
+
+  it('fails closed on blocked, failed, empty, or inconsistent DNS results', async () => {
+    for (const lookupImpl of [
+      async () => [{ address: '192.168.1.10', family: 4 as const }],
+      async () => [{ address: '93.184.216.34', family: 4 as const }, { address: '169.254.169.254', family: 4 as const }],
+      async () => { throw new Error('dns failure') },
+      async () => [],
+      async () => [{ address: '2001:db8::1', family: 4 as const }],
+    ]) {
+      const fetchImpl = vi.fn()
+      await expect(new AirtableClient({ ...valid, baseUrl: 'https://airtable.example.test', fetchImpl, lookupImpl }).verifyToken()).rejects.toBeInstanceOf(AirtableError)
+      expect(fetchImpl).not.toHaveBeenCalled()
+    }
+  })
+
+  it('allows a public endpoint that resolves to a public address', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }))
+    await new AirtableClient({ ...valid, baseUrl: 'https://airtable.example.test', fetchImpl, lookupImpl: publicLookup }).verifyToken().catch(() => undefined)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 })

@@ -24,6 +24,8 @@ Requires `@deepseek-ai/cordis` (^4.0.1) and `@deepseek-ai/dsh-tools` (^0.1.0-rc.
 
 The plugin reads the Airtable personal access token from the environment variable named by `tokenEnv` (default: `AIRTABLE_TOKEN`). Do not put a usable token in source, examples, tests, or committed configuration. Create the token in the Airtable developer hub with only the base scopes your deployment needs (`data.records:read` plus `data.records:write` for the write tools, `schema.bases:read` for base listing).
 
+The `baseUrl` override must be an absolute `http://` or `https://` root URL. Only publicly reachable hosts are allowed: localhost, loopback, private, link-local, CGNAT, multicast, reserved/documentation/benchmark ranges, and every IANA special-purpose block are rejected, and a hostname whose DNS results contain any such address fails closed before the request is sent. Credentials, query strings, fragments, and non-root paths are not allowed.
+
 ## Tools
 
 | Tool | Description | Write |
