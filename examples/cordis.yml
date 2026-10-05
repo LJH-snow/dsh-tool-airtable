@@ -1,0 +1,8 @@
+# Example dsh composition config for dsh-tool-airtable.
+# Keep the personal access token in a secret manager/environment-backed deployment config.
+
+- name: 'github:LJH-snow/dsh-tool-airtable'
+  config:
+    # baseUrl: 'https://api.airtable.com/v0'
+    tokenEnv: 'AIRTABLE_TOKEN'
+    # timeoutMs: 15000
